@@ -646,9 +646,12 @@ function playIntro() {
   player.setVolume(getNormalizedVolume());
   player.seekTo(state.currentSong.start || 0, true);
   player.playVideo();
-  // Start question timer for time attack
-  if (state.gameMode === 'timeattack' && state.questionStartTime === 0) {
+  // Start answer timer for all modes
+  if (state.questionStartTime === 0) {
     state.questionStartTime = Date.now();
+  }
+  // Time attack display
+  if (state.gameMode === 'timeattack') {
     updateTATimer();
   }
 }
@@ -758,20 +761,26 @@ function selectAnswer(index) {
     // Streak bonus: +30 per consecutive correct (2nd=+30, 3rd=+60, 4th=+90...)
     const streakBonus = (state.streak - 1) * 30;
 
-    // Time attack bonus
-    let timeBonus = 0;
-    if (state.gameMode === 'timeattack' && answerTimeMs > 0) {
-      const seconds = answerTimeMs / 1000;
-      timeBonus = Math.max(0, Math.round(50 - seconds * 5));
+    // Speed bonus: based on answer time (all modes)
+    let speedBonus = 0;
+    if (answerTimeMs > 0) {
+      const sec = answerTimeMs / 1000;
+      if (sec <= 1) speedBonus = 100;
+      else if (sec <= 2) speedBonus = 70;
+      else if (sec <= 3) speedBonus = 40;
+      else if (sec <= 4) speedBonus = 20;
     }
 
-    const points = basePoints + streakBonus + timeBonus;
+    const points = basePoints + streakBonus + speedBonus;
     state.score += points;
 
     dom.choiceBtns[index].classList.add('correct');
     // Show breakdown in popup
     let popupText = `+${points}`;
-    if (streakBonus > 0) popupText += ` (🔥${state.streak}連続!)`;
+    const extras = [];
+    if (speedBonus > 0) extras.push(`⚡${(answerTimeMs/1000).toFixed(1)}s`);
+    if (streakBonus > 0) extras.push(`🔥${state.streak}連続`);
+    if (extras.length) popupText += ` (${extras.join(' ')})`;
     showScorePopup(popupText, false);
     if (state.streak >= 3) {
       playSE('streak');
