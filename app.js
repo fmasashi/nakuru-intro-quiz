@@ -91,6 +91,8 @@ const state = {
   questionStartTime: 0,
   filteredSongs: [],
   bgmReady: false,
+  preBuffered: false,
+  introTimerStarted: false,
 };
 
 // ===== YouTube IFrame API =====
@@ -159,20 +161,33 @@ window.onYouTubeIframeAPIReady = function () {
   });
 };
 
+// Volume normalization: adjusts per-song volume based on measured loudness
+function getNormalizedVolume() {
+  const vol = state.currentSong ? state.volume * (state.currentSong.vol || 1) : state.volume;
+  return Math.min(100, Math.max(0, Math.round(vol)));
+}
+
 function onPlayerReady() {
   state.playerReady = true;
   player.setVolume(state.volume);
 }
 
 function onPlayerStateChange(event) {
-  if (event.data === 1 && !state.isPlaying && !state.answered) {
-    player.setVolume(state.volume);
-    state.isPlaying = true;
-    startIntroTimer();
+  // Pre-buffer: pause as soon as video starts playing (while muted)
+  if (event.data === YT.PlayerState.PLAYING && !state.preBuffered && !state.isPlaying) {
+    state.preBuffered = true;
+    player.pauseVideo();
+    player.seekTo(state.currentSong.start || 0, true);
+    dom.btnPlay.disabled = false;
+    return;
   }
-  // Always enforce volume on play
-  if (event.data === 1 && player) {
-    player.setVolume(state.volume);
+  // Actual playback started by user
+  if (event.data === YT.PlayerState.PLAYING && state.isPlaying && !state.answered) {
+    player.setVolume(getNormalizedVolume());
+    if (!state.introTimerStarted) {
+      state.introTimerStarted = true;
+      startIntroTimer();
+    }
   }
 }
 
@@ -599,10 +614,11 @@ function loadQuestion() {
     dom.taValue.textContent = '0.0s';
   }
 
-  // Cue video
+  // Pre-buffer video (muted) for instant playback
   if (state.playerReady && player) {
-    player.cueVideoById({ videoId: state.currentSong.id, startSeconds: state.currentSong.start || 0 });
-    player.setVolume(state.volume);
+    state.preBuffered = false;
+    player.mute();
+    player.loadVideoById({ videoId: state.currentSong.id, startSeconds: state.currentSong.start || 0 });
   }
 }
 
@@ -624,8 +640,11 @@ function enableChoices() {
 function playIntro() {
   if (!state.playerReady || !player || state.isPlaying) return;
   dom.btnPlay.disabled = true;
-  player.setVolume(state.volume);
-  player.seekTo(0, true);
+  state.isPlaying = true;
+  state.introTimerStarted = false;
+  player.unMute();
+  player.setVolume(getNormalizedVolume());
+  player.seekTo(state.currentSong.start || 0, true);
   player.playVideo();
   // Start question timer for time attack
   if (state.gameMode === 'timeattack' && state.questionStartTime === 0) {
@@ -645,8 +664,8 @@ function replayIntro() {
   if (!state.playerReady || !player) return;
   dom.btnFullListen.classList.remove('playing');
   dom.btnFullListen.textContent = 'フルで聴く';
-  player.setVolume(state.volume);
-  player.seekTo(0, true);
+  player.setVolume(getNormalizedVolume());
+  player.seekTo(state.currentSong.start || 0, true);
   player.playVideo();
   clearTimeout(state.replayTimer);
   state.replayTimer = setTimeout(() => {
@@ -660,7 +679,7 @@ function toggleFullListen() {
   const isPlaying = dom.btnFullListen.classList.toggle('playing');
   if (isPlaying) {
     dom.btnFullListen.textContent = '停止';
-    player.setVolume(state.volume);
+    player.setVolume(getNormalizedVolume());
     player.seekTo(0, true);
     player.playVideo();
   } else {
@@ -727,30 +746,33 @@ function selectAnswer(index) {
     state.streak++;
     if (state.streak > state.maxStreak) state.maxStreak = state.streak;
 
-    // Score calculation
-    let points = 100;
-    if (state.introDuration === 2) points = 150;
-    if (state.introDuration === 1) points = 200;
+    // Score calculation - base points by intro duration
+    let basePoints = 100;
+    if (state.introDuration === 2) basePoints = 150;
+    if (state.introDuration === 1) basePoints = 200;
 
     // Choice count bonus
-    if (state.choiceCount === 6) points = Math.round(points * 1.3);
-    if (state.choiceCount === 8) points = Math.round(points * 1.6);
+    if (state.choiceCount === 6) basePoints = Math.round(basePoints * 1.3);
+    if (state.choiceCount === 8) basePoints = Math.round(basePoints * 1.6);
+
+    // Streak bonus: +30 per consecutive correct (2nd=+30, 3rd=+60, 4th=+90...)
+    const streakBonus = (state.streak - 1) * 30;
 
     // Time attack bonus
+    let timeBonus = 0;
     if (state.gameMode === 'timeattack' && answerTimeMs > 0) {
       const seconds = answerTimeMs / 1000;
-      const timeBonus = Math.max(0, Math.round(50 - seconds * 5));
-      points += timeBonus;
+      timeBonus = Math.max(0, Math.round(50 - seconds * 5));
     }
 
-    // Streak bonus
-    if (state.streak >= 5) points += 50;
-    else if (state.streak >= 3) points += 20;
-
+    const points = basePoints + streakBonus + timeBonus;
     state.score += points;
 
     dom.choiceBtns[index].classList.add('correct');
-    showScorePopup(`+${points}`, false);
+    // Show breakdown in popup
+    let popupText = `+${points}`;
+    if (streakBonus > 0) popupText += ` (🔥${state.streak}連続!)`;
+    showScorePopup(popupText, false);
     if (state.streak >= 3) {
       playSE('streak');
     } else {
