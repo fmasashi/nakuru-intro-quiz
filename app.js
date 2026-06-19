@@ -601,7 +601,7 @@ function loadQuestion() {
 
   // Cue video
   if (state.playerReady && player) {
-    player.cueVideoById({ videoId: state.currentSong.id, startSeconds: 0 });
+    player.cueVideoById({ videoId: state.currentSong.id, startSeconds: state.currentSong.start || 0 });
     player.setVolume(state.volume);
   }
 }
