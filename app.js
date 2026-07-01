@@ -234,6 +234,7 @@ const dom = {
   btnReplay: document.getElementById('btn-replay'),
   btnFullListen: document.getElementById('btn-full-listen'),
   btnNext: document.getElementById('btn-next'),
+  nextArea: document.getElementById('next-area'),
   finalScore: document.getElementById('final-score'),
   finalCorrect: document.getElementById('final-correct'),
   finalStreak: document.getElementById('final-streak'),
@@ -245,6 +246,13 @@ const dom = {
   btnShowReview: document.getElementById('btn-show-review'),
   btnReviewBack: document.getElementById('btn-review-back'),
   reviewList: document.getElementById('review-list'),
+  finalReviewList: document.getElementById('final-review-list'),
+  btnRetryWrong: document.getElementById('btn-retry-wrong'),
+  btnShareX: document.getElementById('btn-share-x'),
+  btnShowStats: document.getElementById('btn-show-stats'),
+  statsContent: document.getElementById('stats-content'),
+  btnStatsBack: document.getElementById('btn-stats-back'),
+  btnClearStats: document.getElementById('btn-clear-stats'),
   volumeSlider: document.getElementById('volume-slider'),
   volumeValue: document.getElementById('volume-value'),
   volumeIcon: document.getElementById('volume-icon'),
@@ -371,6 +379,19 @@ function bindEvents() {
     resetState();
     stopPlayback();
     showScreen('start');
+
+    // New buttons: retry wrong, share to X, stats
+    if (dom.btnRetryWrong) dom.btnRetryWrong.addEventListener('click', retryWrong);
+    if (dom.btnShareX) dom.btnShareX.addEventListener('click', shareToX);
+    if (dom.btnShowStats) dom.btnShowStats.addEventListener('click', showStatsScreen);
+    if (dom.btnStatsBack) dom.btnStatsBack.addEventListener('click', () => showScreen('start'));
+    if (dom.btnClearStats) dom.btnClearStats.addEventListener('click', () => {
+      if (confirm('本当に過去の成績を削除しますか？')) {
+        localStorage.removeItem('nakuru_stats');
+        updateStatsDisplay();
+        showStatsScreen();
+      }
+    });
   });
   dom.btnShowReview.addEventListener('click', showReviewScreen);
   dom.btnReviewBack.addEventListener('click', () => showScreen('result'));
@@ -566,6 +587,7 @@ function loadQuestion() {
   dom.currentQ.textContent = state.questionNum;
   dom.streak.textContent = state.streak;
   dom.resultArea.classList.add('hidden');
+  dom.nextArea.classList.add('hidden');
   dom.playOverlay.classList.remove('hidden');
   dom.btnPlay.disabled = false;
   dom.timerFill.style.width = '0%';
@@ -816,6 +838,7 @@ function selectAnswer(index) {
 
 function showResult(correct, customMsg) {
   dom.resultArea.classList.remove('hidden');
+  dom.nextArea.classList.remove('hidden');
 
   // Song info & lyrics
   const songInfo = state.currentSong.info || '';
@@ -843,6 +866,13 @@ function showResult(correct, customMsg) {
       : pickRandom(messages);
     dom.resultText.className = 'result-text correct';
     dom.resultSong.textContent = state.currentSong.title;
+    // animated reveal
+    dom.resultSong.classList.add('reveal-song');
+    dom.resultInfo.classList.add('info-reveal');
+    setTimeout(() => {
+      dom.resultSong.classList.remove('reveal-song');
+      dom.resultInfo.classList.remove('info-reveal');
+    }, 800);
   } else {
     dom.resultIcon.innerHTML = '<span class="icon-wrong">&times;</span>';
     const messages = ['残念...', 'おしい！', 'ドンマイ！'];
@@ -920,6 +950,26 @@ function showFinalResult() {
 
   // Update progress to 100%
   dom.progressFill.style.width = '100%';
+  // Update cumulative stats
+  try { updateStatsOnFinish(); } catch (e) {}
+
+  // Populate final review list (correct / incorrect with correct name)
+  if (dom.finalReviewList) {
+    dom.finalReviewList.innerHTML = '';
+    state.answerHistory.forEach((entry, i) => {
+      const row = document.createElement('div');
+      row.className = `final-review-item ${entry.correct ? 'correct' : 'wrong'}`;
+      const left = document.createElement('div');
+      left.innerHTML = `<div class="song-title">${i + 1}. ${entry.song.title}</div><div class="song-extra">${entry.song.info || ''}</div>`;
+      const right = document.createElement('div');
+      right.style.minWidth = '120px';
+      right.style.textAlign = 'right';
+      right.innerHTML = entry.correct ? `<div class="song-extra">正解</div>` : `<div class="song-extra">正解: ${entry.song.title}</div>`;
+      row.appendChild(left);
+      row.appendChild(right);
+      dom.finalReviewList.appendChild(row);
+    });
+  }
 }
 
 function formatTime(ms) {
@@ -1016,6 +1066,97 @@ function saveTrackingResult(songId, correct) {
   if (correct) tracking[songId].correct++;
   else tracking[songId].wrong++;
   localStorage.setItem('nakuru_tracking', JSON.stringify(tracking));
+}
+
+// ===== Statistics (cumulative) =====
+function loadStats() {
+  return JSON.parse(localStorage.getItem('nakuru_stats') || '{"plays":0,"totalCorrect":0,"totalQuestions":0,"perSongWrong":{}}');
+}
+
+function saveStats(stats) {
+  localStorage.setItem('nakuru_stats', JSON.stringify(stats));
+}
+
+function updateStatsOnFinish() {
+  const stats = loadStats();
+  stats.plays = (stats.plays || 0) + 1;
+  stats.totalCorrect = (stats.totalCorrect || 0) + state.correctCount;
+  const answered = state.answerHistory.length;
+  stats.totalQuestions = (stats.totalQuestions || 0) + answered;
+  stats.perSongWrong = stats.perSongWrong || {};
+  state.answerHistory.forEach(entry => {
+    if (!entry.correct) {
+      const id = entry.song.id;
+      stats.perSongWrong[id] = (stats.perSongWrong[id] || 0) + 1;
+    }
+  });
+  saveStats(stats);
+}
+
+function computeStatsSummary() {
+  const s = loadStats();
+  const plays = s.plays || 0;
+  const totalQ = s.totalQuestions || 0;
+  const totalCorrect = s.totalCorrect || 0;
+  const accuracy = totalQ > 0 ? Math.round((totalCorrect / totalQ) * 1000) / 10 : 0;
+  // most missed
+  let mostMissed = null;
+  let max = 0;
+  for (const id in (s.perSongWrong || {})) {
+    if (s.perSongWrong[id] > max) { max = s.perSongWrong[id]; mostMissed = id; }
+  }
+  const mostMissedSong = mostMissed ? SONGS.find(x => x.id === mostMissed) : null;
+  return { plays, totalQ, totalCorrect, accuracy, mostMissedSong, mostMissedCount: max };
+}
+
+function updateStatsDisplay() {
+  const el = dom.statsContent;
+  if (!el) return;
+  const sum = computeStatsSummary();
+  el.innerHTML = '';
+  const rows = [];
+  rows.push(`<div class="stat-row"><div><div class="stat-label">プレイ回数</div><div class="stat-value">${sum.plays}</div></div><div></div></div>`);
+  rows.push(`<div class="stat-row"><div><div class="stat-label">総問題数</div><div class="stat-value">${sum.totalQ}</div></div><div></div></div>`);
+  rows.push(`<div class="stat-row"><div><div class="stat-label">総正解数</div><div class="stat-value">${sum.totalCorrect}</div></div><div></div></div>`);
+  rows.push(`<div class="stat-row"><div><div class="stat-label">総合正答率</div><div class="stat-value">${sum.accuracy}%</div></div><div></div></div>`);
+  if (sum.mostMissedSong) {
+    rows.push(`<div class="stat-row"><div><div class="stat-label">最も間違えた曲</div><div class="stat-value">${sum.mostMissedSong.title} (${sum.mostMissedCount}回)</div></div><div></div></div>`);
+  }
+  el.innerHTML = rows.join('');
+}
+
+function showStatsScreen() {
+  updateStatsDisplay();
+  showScreen('stats');
+}
+
+// ===== Retry Wrong =====
+function retryWrong() {
+  const wrongSongs = state.answerHistory.filter(e => !e.correct).map(e => e.song);
+  if (!wrongSongs || wrongSongs.length === 0) {
+    alert('間違えた曲はありません。');
+    return;
+  }
+  resetState();
+  // Deduplicate
+  const unique = [];
+  const seen = new Set();
+  wrongSongs.forEach(s => { if (!seen.has(s.id)) { seen.add(s.id); unique.push(s); } });
+  state.filteredSongs = unique;
+  state.totalQuestions = unique.length;
+  state.quizStartTime = Date.now();
+  dom.totalQ.textContent = state.totalQuestions;
+  if (state.gameMode === 'timeattack') dom.taTimer.classList.remove('hidden'); else dom.taTimer.classList.add('hidden');
+  showScreen('quiz');
+  loadQuestion();
+}
+
+// ===== Share to X/Twitter =====
+function shareToX() {
+  const totalAnswered = state.answerHistory.length;
+  const text = `藍月なくる イントロクイズ: スコア ${state.score} / 正解 ${state.correctCount}/${totalAnswered} - あなたも挑戦してみて！`;
+  const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank', 'noopener');
 }
 
 // ===== Utilities =====
