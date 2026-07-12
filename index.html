@@ -72,13 +72,26 @@
               <button class="chip active" data-mode="normal">ノーマル</button>
               <button class="chip" data-mode="timeattack">タイムアタック</button>
               <button class="chip" data-mode="weakonly">苦手曲のみ</button>
+              <button class="chip" data-mode="sequential">順番プレイ</button>
+              <button class="chip" data-mode="challenge">チャレンジ</button>
             </div>
+          </div>
+        </div>
+
+        <!-- Challenge Set Picker (visible only in challenge mode) -->
+        <div class="settings-row hidden" id="challenge-row">
+          <div class="setting-group">
+            <p class="label">チャレンジセット（10曲ずつ）</p>
+            <div class="chip-options" id="challenge-set-options">
+              <!-- Set buttons are dynamically generated -->
+            </div>
+            <p class="challenge-range" id="challenge-range"></p>
           </div>
         </div>
 
         <!-- Question Count & Choice Count -->
         <div class="settings-row dual">
-          <div class="setting-group">
+          <div class="setting-group" id="count-group">
             <p class="label">出題数</p>
             <div class="chip-options" id="count-options">
               <button class="chip active" data-count="10">10問</button>
@@ -98,7 +111,7 @@
 
         <!-- Category Filter -->
         <div class="settings-row">
-          <div class="setting-group">
+          <div class="setting-group" id="category-group">
             <p class="label">カテゴリ</p>
             <div class="chip-options multi" id="category-options">
               <button class="chip active" data-cat="all">すべて</button>

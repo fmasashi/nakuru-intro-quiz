@@ -1152,43 +1152,6 @@ h1#main-title {
   color: var(--text-muted);
 }
 
-/* ===== Score Popup ===== */
-.score-popup {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) scale(0);
-  font-size: 3rem;
-  font-weight: 900;
-  pointer-events: none;
-  z-index: 100;
-  color: var(--accent-primary);
-  text-shadow: 0 0 20px rgba(110, 142, 251, 0.3);
-  animation: scorePopup 1s ease-out forwards;
-}
-
-.score-popup.bonus {
-  color: #ffd700;
-  text-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
-}
-
-@keyframes scorePopup {
-  0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
-  30% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
-  100% { transform: translate(-50%, -80%) scale(0.8); opacity: 0; }
-}
-
-/* ===== Streak Fire ===== */
-.streak-fire {
-  animation: firePulse 0.5s ease-out;
-}
-
-@keyframes firePulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.3); }
-  100% { transform: scale(1); }
-}
-
 /* ===== Responsive ===== */
 @media (max-width: 600px) {
   .glass-card {
@@ -1321,6 +1284,28 @@ h1#main-title {
   background: rgba(110, 142, 251, 0.18);
   border-color: var(--accent-primary);
   color: var(--accent-primary);
+}
+
+/* Settings ignored by the current game mode */
+.setting-group.disabled-group {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* Challenge set picker */
+.settings-row.hidden { display: none; }
+
+#challenge-set-options .chip {
+  min-width: 34px;
+  padding: 5px 8px;
+  text-align: center;
+}
+
+.challenge-range {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+  text-align: center;
 }
 
 /* Progress Bar */
@@ -1553,7 +1538,6 @@ h1#main-title {
   min-width: 0;
 }
 
-.review-title-text,
 .review-details .review-title {
   font-size: 0.8rem;
   color: var(--text-primary);

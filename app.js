@@ -9,6 +9,7 @@ let audioCtx = null;
 
 function initAudio() {
   if (!audioCtx) audioCtx = new AudioCtx();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
 }
 
 function playSE(type) {
@@ -63,6 +64,10 @@ function playSE(type) {
   }
 }
 
+// ===== Constants =====
+const CATEGORIES = ['solo', 'endorfin', 'la_priere', 'itsukinkuru', 'collab'];
+const CHALLENGE_SET_SIZE = 10;
+
 // ===== State =====
 const state = {
   introDuration: 3,
@@ -81,16 +86,21 @@ const state = {
   stopTimer: null,
   timerInterval: null,
   replayTimer: null,
+  errorSkipTimer: null,
+  taRafId: null,
   volume: 40,
   totalQuestions: 10,       // 0 = all
   choiceCount: 4,
-  gameMode: 'normal',       // normal, timeattack, weakonly
-  categoryFilter: new Set(['solo', 'endorfin', 'la_priere', 'itsukinkuru', 'collab']),
+  gameMode: 'normal',       // normal, timeattack, weakonly, sequential, challenge
+  challengeSet: 0,          // selected set index for challenge mode
+  categoryFilter: new Set(CATEGORIES),
   answerHistory: [],         // [{song, correct, timeMs}]
   quizStartTime: 0,
   questionStartTime: 0,
   filteredSongs: [],
   bgmReady: false,
+  preBuffered: false,
+  introTimerStarted: false,
 };
 
 // ===== YouTube IFrame API =====
@@ -130,7 +140,7 @@ window.onYouTubeIframeAPIReady = function () {
       },
       onStateChange: function(e) {
         if (e.data === YT.PlayerState.ENDED) {
-          bgmPlayer.loadVideoById({ videoId: BGM_SONGS[Math.floor(Math.random() * BGM_SONGS.length)], startSeconds: 30 });
+          playRandomBgm();
         }
         if (e.data === YT.PlayerState.PLAYING) {
           bgmPlayer.setVolume(BGM_VOLUME);
@@ -153,11 +163,17 @@ window.onYouTubeIframeAPIReady = function () {
         }
       },
       onError: function() {
-        bgmPlayer.loadVideoById({ videoId: BGM_SONGS[Math.floor(Math.random() * BGM_SONGS.length)], startSeconds: 30 });
+        playRandomBgm();
       }
     },
   });
 };
+
+// Volume normalization: adjusts per-song volume based on measured loudness
+function getNormalizedVolume() {
+  const vol = state.currentSong ? state.volume * (state.currentSong.vol || 1) : state.volume;
+  return Math.min(100, Math.max(0, Math.round(vol)));
+}
 
 function onPlayerReady() {
   state.playerReady = true;
@@ -165,28 +181,36 @@ function onPlayerReady() {
 }
 
 function onPlayerStateChange(event) {
-  if (event.data === 1 && !state.isPlaying && !state.answered) {
-    player.setVolume(state.volume);
-    state.isPlaying = true;
-    startIntroTimer();
+  if (!state.currentSong) return;
+  // Pre-buffer: pause as soon as video starts playing (while muted)
+  if (event.data === YT.PlayerState.PLAYING && !state.preBuffered && !state.isPlaying) {
+    state.preBuffered = true;
+    player.pauseVideo();
+    player.seekTo(state.currentSong.start || 0, true);
+    dom.btnPlay.disabled = false;
+    return;
   }
-  // Always enforce volume on play
-  if (event.data === 1 && player) {
-    player.setVolume(state.volume);
+  // Actual playback started by user
+  if (event.data === YT.PlayerState.PLAYING && state.isPlaying && !state.answered) {
+    player.setVolume(getNormalizedVolume());
+    if (!state.introTimerStarted) {
+      state.introTimerStarted = true;
+      startIntroTimer();
+    }
   }
 }
 
 function onPlayerError(event) {
   console.warn('YouTube player error:', event.data);
-  if (!state.answered) {
+  if (!state.answered && state.currentSong) {
     state.hasPlayed = true;
     state.answered = true;
     dom.choiceBtns.forEach(btn => btn.disabled = true);
     dom.btnPlay.disabled = true;
     showResult(false, 'この動画は再生できませんでした');
-    // Auto-skip after 2 seconds
-    setTimeout(() => {
+    state.errorSkipTimer = setTimeout(() => {
       if (state.answered) {
+        stopPlayback();
         loadQuestion();
       }
     }, 2000);
@@ -203,7 +227,6 @@ const dom = {
   currentQ: document.getElementById('current-q'),
   totalQ: document.getElementById('total-q'),
   streak: document.getElementById('streak'),
-  playOverlay: document.getElementById('play-overlay'),
   btnPlay: document.getElementById('btn-play'),
   timerFill: document.getElementById('timer-fill'),
   choicesArea: document.getElementById('choices-area'),
@@ -242,6 +265,11 @@ const dom = {
   hsScore: document.getElementById('hs-score'),
   hsTime: document.getElementById('hs-time'),
   gameModeOptions: document.querySelectorAll('#game-mode-options .chip'),
+  challengeRow: document.getElementById('challenge-row'),
+  challengeSetOptions: document.getElementById('challenge-set-options'),
+  challengeRange: document.getElementById('challenge-range'),
+  countGroup: document.getElementById('count-group'),
+  categoryGroup: document.getElementById('category-group'),
   countOptions: document.querySelectorAll('#count-options .chip'),
   choiceCountOptions: document.querySelectorAll('#choice-count-options .chip'),
   categoryOptions: document.querySelectorAll('#category-options .chip'),
@@ -251,11 +279,64 @@ const dom = {
 // ===== Initialization =====
 function init() {
   dom.totalSongs.textContent = SONGS.length;
+  generateChallengeSetButtons();
   updateFilteredCount();
   loadYouTubeAPI();
   bindEvents();
   generateChoiceButtons(state.choiceCount);
   updateHighScoreDisplay();
+}
+
+// ===== Ordered Modes (sequential / challenge) =====
+function isOrderedMode() {
+  return state.gameMode === 'sequential' || state.gameMode === 'challenge';
+}
+
+// Split SONGS into sets of CHALLENGE_SET_SIZE; a short remainder is merged into the last set
+function getChallengeSets() {
+  const sets = [];
+  for (let start = 0; start < SONGS.length; start += CHALLENGE_SET_SIZE) {
+    sets.push({ start, end: Math.min(start + CHALLENGE_SET_SIZE, SONGS.length) });
+  }
+  if (sets.length > 1 && sets[sets.length - 1].end - sets[sets.length - 1].start < CHALLENGE_SET_SIZE) {
+    const last = sets.pop();
+    sets[sets.length - 1].end = last.end;
+  }
+  return sets;
+}
+
+function generateChallengeSetButtons() {
+  const sets = getChallengeSets();
+  dom.challengeSetOptions.innerHTML = '';
+  sets.forEach((set, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'chip' + (i === state.challengeSet ? ' active' : '');
+    btn.textContent = i + 1;
+    btn.title = `${set.start + 1}〜${set.end}曲目`;
+    btn.addEventListener('click', () => {
+      state.challengeSet = i;
+      dom.challengeSetOptions.querySelectorAll('.chip').forEach((b, j) => b.classList.toggle('active', j === i));
+      updateChallengeRange();
+      updateFilteredCount();
+      updateHighScoreDisplay();
+    });
+    dom.challengeSetOptions.appendChild(btn);
+  });
+  updateChallengeRange();
+}
+
+function updateChallengeRange() {
+  const set = getChallengeSets()[state.challengeSet];
+  const names = SONGS.slice(set.start, set.end);
+  dom.challengeRange.textContent = `セット${state.challengeSet + 1}: ${set.start + 1}〜${set.end}曲目 (${names.length}曲)`;
+}
+
+// Grey out settings that ordered modes ignore, and show/hide the set picker
+function updateModeUI() {
+  const ordered = isOrderedMode();
+  dom.challengeRow.classList.toggle('hidden', state.gameMode !== 'challenge');
+  dom.countGroup.classList.toggle('disabled-group', ordered);
+  dom.categoryGroup.classList.toggle('disabled-group', ordered);
 }
 
 function generateChoiceButtons(count) {
@@ -295,7 +376,9 @@ function bindEvents() {
       dom.gameModeOptions.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       state.gameMode = btn.dataset.mode;
+      updateModeUI();
       updateHighScoreDisplay();
+      updateFilteredCount();
     });
   });
 
@@ -316,6 +399,7 @@ function bindEvents() {
       btn.classList.add('active');
       state.choiceCount = parseInt(btn.dataset.choices);
       generateChoiceButtons(state.choiceCount);
+      updateHighScoreDisplay();
     });
   });
 
@@ -338,25 +422,8 @@ function bindEvents() {
   dom.btnFullListen.addEventListener('click', toggleFullListen);
   dom.btnQuit.addEventListener('click', quitQuiz);
 
-  dom.btnRestart.addEventListener('click', () => {
-    resetState();
-    state.filteredSongs = getFilteredSongs();
-    state.quizStartTime = Date.now();
-    const total = state.totalQuestions > 0 ? Math.min(state.totalQuestions, state.filteredSongs.length) : state.filteredSongs.length;
-    dom.totalQ.textContent = total;
-    if (state.gameMode === 'timeattack') {
-      dom.taTimer.classList.remove('hidden');
-    } else {
-      dom.taTimer.classList.add('hidden');
-    }
-    showScreen('quiz');
-    loadQuestion();
-  });
-  dom.btnBackTitle.addEventListener('click', () => {
-    resetState();
-    stopPlayback();
-    showScreen('start');
-  });
+  dom.btnRestart.addEventListener('click', startQuiz);
+  dom.btnBackTitle.addEventListener('click', quitQuiz);
   dom.btnShowReview.addEventListener('click', showReviewScreen);
   dom.btnReviewBack.addEventListener('click', () => showScreen('result'));
 
@@ -377,14 +444,13 @@ function handleCategoryClick(btn) {
   const cat = btn.dataset.cat;
   if (cat === 'all') {
     const allActive = btn.classList.contains('active');
-    const cats = ['solo', 'endorfin', 'la_priere', 'itsukinkuru', 'collab'];
     if (allActive) {
       // Deselect all
       state.categoryFilter.clear();
       dom.categoryOptions.forEach(b => b.classList.remove('active'));
     } else {
       // Select all
-      cats.forEach(c => state.categoryFilter.add(c));
+      CATEGORIES.forEach(c => state.categoryFilter.add(c));
       dom.categoryOptions.forEach(b => b.classList.add('active'));
     }
   } else {
@@ -396,12 +462,7 @@ function handleCategoryClick(btn) {
     }
     // Update "all" button
     const allBtn = document.querySelector('[data-cat="all"]');
-    const cats = ['solo', 'endorfin', 'la_priere', 'itsukinkuru', 'collab'];
-    if (cats.every(c => state.categoryFilter.has(c))) {
-      allBtn.classList.add('active');
-    } else {
-      allBtn.classList.remove('active');
-    }
+    allBtn.classList.toggle('active', CATEGORIES.every(c => state.categoryFilter.has(c)));
   }
   updateFilteredCount();
 }
@@ -412,6 +473,14 @@ function updateFilteredCount() {
 }
 
 function getFilteredSongs() {
+  // Ordered modes use the fixed songs.js order and ignore category / weak-song filters
+  if (state.gameMode === 'sequential') {
+    return [...SONGS];
+  }
+  if (state.gameMode === 'challenge') {
+    const set = getChallengeSets()[state.challengeSet];
+    return SONGS.slice(set.start, set.end);
+  }
   let songs = SONGS.filter(s => {
     const cat = s.category || 'solo';
     return state.categoryFilter.has(cat);
@@ -496,6 +565,7 @@ function setDifficulty(seconds) {
   state.introDuration = seconds;
   dom.diffBtns.forEach(b => b.classList.toggle('active', parseInt(b.dataset.seconds) === seconds));
   dom.inlineDiffBtns.forEach(b => b.classList.toggle('active', parseInt(b.dataset.seconds) === seconds));
+  updateHighScoreDisplay();
 }
 
 // ===== Quiz Logic =====
@@ -511,15 +581,10 @@ function startQuiz() {
 
   state.quizStartTime = Date.now();
   // Set total for display
-  const total = state.totalQuestions > 0 ? Math.min(state.totalQuestions, state.filteredSongs.length) : state.filteredSongs.length;
-  dom.totalQ.textContent = total;
+  dom.totalQ.textContent = getEffectiveTotal();
 
   // Time attack UI
-  if (state.gameMode === 'timeattack') {
-    dom.taTimer.classList.remove('hidden');
-  } else {
-    dom.taTimer.classList.add('hidden');
-  }
+  dom.taTimer.classList.toggle('hidden', state.gameMode !== 'timeattack');
 
   showScreen('quiz');
   loadQuestion();
@@ -537,6 +602,7 @@ function resetState() {
   state.hasPlayed = false;
   state.usedSongIds.clear();
   state.isPlaying = false;
+  state.preBuffered = true;
   state.answerHistory = [];
   clearTimers();
 }
@@ -551,7 +617,6 @@ function loadQuestion() {
   dom.currentQ.textContent = state.questionNum;
   dom.streak.textContent = state.streak;
   dom.resultArea.classList.add('hidden');
-  dom.playOverlay.classList.remove('hidden');
   dom.btnPlay.disabled = false;
   dom.timerFill.style.width = '0%';
 
@@ -564,20 +629,23 @@ function loadQuestion() {
   });
 
   // Check question limit
+  const ordered = isOrderedMode();
   const available = state.filteredSongs.filter(s => !state.usedSongIds.has(s.id));
-  const reachedLimit = state.totalQuestions > 0 && state.questionNum > state.totalQuestions;
-  if (available.length < state.choiceCount || reachedLimit) {
+  const noMoreSongs = ordered ? available.length === 0 : available.length < state.choiceCount;
+  const reachedLimit = state.questionNum > getEffectiveTotal();
+  if (noMoreSongs || reachedLimit) {
     state.questionNum--;
     showFinalResult();
     return;
   }
 
-  // Pick current song
-  state.currentSong = pickRandom(available);
+  // Pick current song: fixed order for sequential/challenge, random otherwise
+  state.currentSong = ordered ? available[0] : pickRandom(available);
   state.usedSongIds.add(state.currentSong.id);
 
-  // Generate choices
-  const wrongPool = state.filteredSongs.filter(s =>
+  // Generate choices (ordered modes draw wrong answers from ALL songs)
+  const wrongPoolBase = ordered ? SONGS : state.filteredSongs;
+  const wrongPool = wrongPoolBase.filter(s =>
     s.id !== state.currentSong.id && s.title !== state.currentSong.title
   );
   const wrongChoices = shuffle(wrongPool).slice(0, state.choiceCount - 1);
@@ -599,18 +667,24 @@ function loadQuestion() {
     dom.taValue.textContent = '0.0s';
   }
 
-  // Cue video
+  // Pre-buffer video (muted) for instant playback
   if (state.playerReady && player) {
-    player.cueVideoById({ videoId: state.currentSong.id, startSeconds: 0 });
-    player.setVolume(state.volume);
+    state.preBuffered = false;
+    player.mute();
+    player.loadVideoById({ videoId: state.currentSong.id, startSeconds: state.currentSong.start || 0 });
   }
 }
 
-function updateProgress() {
-  const total = state.totalQuestions > 0
+// Effective number of questions in the current quiz (ordered modes ignore the count setting)
+function getEffectiveTotal() {
+  if (isOrderedMode()) return state.filteredSongs.length;
+  return state.totalQuestions > 0
     ? Math.min(state.totalQuestions, state.filteredSongs.length)
     : state.filteredSongs.length;
-  const pct = ((state.questionNum - 1) / total) * 100;
+}
+
+function updateProgress() {
+  const pct = ((state.questionNum - 1) / getEffectiveTotal()) * 100;
   dom.progressFill.style.width = `${Math.min(pct, 100)}%`;
 }
 
@@ -624,31 +698,42 @@ function enableChoices() {
 function playIntro() {
   if (!state.playerReady || !player || state.isPlaying) return;
   dom.btnPlay.disabled = true;
-  player.setVolume(state.volume);
-  player.seekTo(0, true);
+  state.isPlaying = true;
+  state.introTimerStarted = false;
+  player.unMute();
+  player.setVolume(getNormalizedVolume());
+  player.seekTo(state.currentSong.start || 0, true);
   player.playVideo();
-  // Start question timer for time attack
-  if (state.gameMode === 'timeattack' && state.questionStartTime === 0) {
+  // Start answer timer for all modes
+  if (state.questionStartTime === 0) {
     state.questionStartTime = Date.now();
+  }
+  // Time attack display
+  if (state.gameMode === 'timeattack') {
     updateTATimer();
   }
 }
 
 function updateTATimer() {
-  if (state.gameMode !== 'timeattack' || state.answered) return;
+  if (state.gameMode !== 'timeattack' || state.answered) { state.taRafId = null; return; }
   const elapsed = ((Date.now() - state.questionStartTime) / 1000).toFixed(1);
   dom.taValue.textContent = `${elapsed}s`;
-  requestAnimationFrame(updateTATimer);
+  state.taRafId = requestAnimationFrame(updateTATimer);
+}
+
+// Reset the replay timer & "full listen" button back to their default state
+function resetListenControls() {
+  clearTimeout(state.replayTimer);
+  dom.btnFullListen.classList.remove('playing');
+  dom.btnFullListen.textContent = 'フルで聴く';
 }
 
 function replayIntro() {
   if (!state.playerReady || !player) return;
-  dom.btnFullListen.classList.remove('playing');
-  dom.btnFullListen.textContent = 'フルで聴く';
-  player.setVolume(state.volume);
-  player.seekTo(0, true);
+  resetListenControls();
+  player.setVolume(getNormalizedVolume());
+  player.seekTo(state.currentSong.start || 0, true);
   player.playVideo();
-  clearTimeout(state.replayTimer);
   state.replayTimer = setTimeout(() => {
     if (player && state.answered) player.pauseVideo();
   }, state.introDuration * 1000);
@@ -660,7 +745,7 @@ function toggleFullListen() {
   const isPlaying = dom.btnFullListen.classList.toggle('playing');
   if (isPlaying) {
     dom.btnFullListen.textContent = '停止';
-    player.setVolume(state.volume);
+    player.setVolume(getNormalizedVolume());
     player.seekTo(0, true);
     player.playVideo();
   } else {
@@ -706,6 +791,8 @@ function stopPlayback() {
 function clearTimers() {
   if (state.stopTimer) { clearTimeout(state.stopTimer); state.stopTimer = null; }
   if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
+  if (state.errorSkipTimer) { clearTimeout(state.errorSkipTimer); state.errorSkipTimer = null; }
+  if (state.taRafId) { cancelAnimationFrame(state.taRafId); state.taRafId = null; }
 }
 
 // ===== Answer Logic =====
@@ -727,30 +814,39 @@ function selectAnswer(index) {
     state.streak++;
     if (state.streak > state.maxStreak) state.maxStreak = state.streak;
 
-    // Score calculation
-    let points = 100;
-    if (state.introDuration === 2) points = 150;
-    if (state.introDuration === 1) points = 200;
+    // Score calculation - base points by intro duration
+    let basePoints = 100;
+    if (state.introDuration === 2) basePoints = 150;
+    if (state.introDuration === 1) basePoints = 200;
 
     // Choice count bonus
-    if (state.choiceCount === 6) points = Math.round(points * 1.3);
-    if (state.choiceCount === 8) points = Math.round(points * 1.6);
+    if (state.choiceCount === 6) basePoints = Math.round(basePoints * 1.3);
+    if (state.choiceCount === 8) basePoints = Math.round(basePoints * 1.6);
 
-    // Time attack bonus
-    if (state.gameMode === 'timeattack' && answerTimeMs > 0) {
-      const seconds = answerTimeMs / 1000;
-      const timeBonus = Math.max(0, Math.round(50 - seconds * 5));
-      points += timeBonus;
+    // Streak bonus: +30 per consecutive correct (2nd=+30, 3rd=+60, 4th=+90...)
+    const streakBonus = (state.streak - 1) * 30;
+
+    // Speed bonus: based on answer time (all modes)
+    let speedBonus = 0;
+    if (answerTimeMs > 0) {
+      const sec = answerTimeMs / 1000;
+      if (sec <= 1) speedBonus = 100;
+      else if (sec <= 2) speedBonus = 70;
+      else if (sec <= 3) speedBonus = 40;
+      else if (sec <= 4) speedBonus = 20;
     }
 
-    // Streak bonus
-    if (state.streak >= 5) points += 50;
-    else if (state.streak >= 3) points += 20;
-
+    const points = basePoints + streakBonus + speedBonus;
     state.score += points;
 
     dom.choiceBtns[index].classList.add('correct');
-    showScorePopup(`+${points}`, false);
+    // Show breakdown in popup
+    let popupText = `+${points}`;
+    const extras = [];
+    if (speedBonus > 0) extras.push(`⚡${(answerTimeMs/1000).toFixed(1)}s`);
+    if (streakBonus > 0) extras.push(`🔥${state.streak}連続`);
+    if (extras.length) popupText += ` (${extras.join(' ')})`;
+    showScorePopup(popupText);
     if (state.streak >= 3) {
       playSE('streak');
     } else {
@@ -832,28 +928,25 @@ function showResult(correct, customMsg) {
   dom.resultIcon.style.animation = '';
 }
 
-function showScorePopup(text, isBonus) {
+function showScorePopup(text) {
   const popup = document.createElement('div');
-  popup.className = `score-popup${isBonus ? ' bonus' : ''}`;
+  popup.className = 'score-popup';
   popup.textContent = text;
   document.body.appendChild(popup);
   setTimeout(() => popup.remove(), 1000);
 }
 
 function nextQuestion() {
-  clearTimeout(state.replayTimer);
-  if (dom.btnFullListen) {
-    dom.btnFullListen.classList.remove('playing');
-    dom.btnFullListen.textContent = 'フルで聴く';
-  }
+  resetListenControls();
   stopPlayback();
   loadQuestion();
 }
 
 function quitQuiz() {
+  resetListenControls();
   stopPlayback();
-  clearTimeout(state.replayTimer);
   resetState();
+  updateHighScoreDisplay();
   showScreen('start');
 }
 
@@ -874,7 +967,7 @@ function showFinalResult() {
   // Rank
   const pct = totalAnswered > 0 ? state.correctCount / totalAnswered : 0;
   let rank, rankClass;
-  if (pct >= 0.95 && state.introDuration <= 1) { rank = 'S+'; rankClass = 'rank-splus'; }
+  if (pct >= 0.95 && state.introDuration <= 1) { rank = 'S+'; rankClass = 'rank-sp'; }
   else if (pct >= 0.9) { rank = 'S'; rankClass = 'rank-s'; }
   else if (pct >= 0.75) { rank = 'A'; rankClass = 'rank-a'; }
   else if (pct >= 0.5) { rank = 'B'; rankClass = 'rank-b'; }
@@ -945,7 +1038,10 @@ function showReviewScreen() {
 
 // ===== localStorage: High Scores =====
 function getHSKey() {
-  return `nakuru_hs_${state.gameMode}_${state.totalQuestions}_${state.introDuration}_${state.choiceCount}`;
+  // Challenge scores are stored per set; ordered modes ignore the question-count setting
+  const mode = state.gameMode === 'challenge' ? `challenge${state.challengeSet}` : state.gameMode;
+  const count = isOrderedMode() ? 'fixed' : state.totalQuestions;
+  return `nakuru_hs_${mode}_${count}_${state.introDuration}_${state.choiceCount}`;
 }
 
 function saveHighScore(score, timeMs) {
@@ -1005,6 +1101,10 @@ function shuffle(arr) {
 let bgmStarted = false;
 let bgmMuted = false;
 
+function playRandomBgm() {
+  bgmPlayer.loadVideoById({ videoId: pickRandom(BGM_SONGS), startSeconds: 30 });
+}
+
 function bgmPause() {
   if (bgmPlayer && typeof bgmPlayer.pauseVideo === 'function') {
     try { bgmPlayer.pauseVideo(); } catch(e) {}
@@ -1017,7 +1117,7 @@ function bgmResume() {
     const vol = parseInt(document.getElementById('bgm-volume')?.value || BGM_VOLUME);
     if (!bgmStarted) {
       bgmStarted = true;
-      bgmPlayer.loadVideoById({ videoId: BGM_SONGS[Math.floor(Math.random() * BGM_SONGS.length)], startSeconds: 30 });
+      playRandomBgm();
       bgmPlayer.setVolume(vol);
     } else {
       bgmPlayer.setVolume(vol);
@@ -1034,7 +1134,6 @@ function initBgmControls() {
     toggleBtn.addEventListener('click', () => {
       bgmMuted = !bgmMuted;
       toggleBtn.classList.toggle('muted', bgmMuted);
-      toggleBtn.textContent = bgmMuted ? '♪' : '♪';
       toggleBtn.title = bgmMuted ? 'BGM OFF (クリックで再開)' : 'BGM ON (クリックで停止)';
       if (bgmMuted) {
         bgmPause();
