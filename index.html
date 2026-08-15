@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260713a">
 </head>
 <body>
   <!-- Hidden BGM player -->
@@ -234,19 +234,6 @@
       </div>
     </div>
 
-    <!-- Review Screen -->
-    <div id="screen-review" class="screen">
-      <div class="card glass-card review-card">
-        <h2 class="review-title">結果一覧</h2>
-        <div class="review-list" id="review-list">
-          <!-- Dynamically generated -->
-        </div>
-        <button class="btn-primary" id="btn-review-back">
-          <span class="btn-text">結果に戻る</span>
-        </button>
-      </div>
-    </div>
-
     <!-- Result Screen -->
     <div id="screen-result" class="screen">
       <div class="card glass-card result-card">
@@ -276,18 +263,19 @@
           <span class="rank-label">ランク</span>
           <span class="rank-value" id="rank-value">-</span>
         </div>
-        <div id="final-review-list" class="final-review-list"></div>
         <div class="highscore-badge hidden" id="new-highscore">
           NEW HIGH SCORE!
         </div>
+        <div class="review-list" id="review-list">
+          <!-- Dynamically generated -->
+        </div>
         <div class="result-buttons">
-          <button class="btn-primary" id="btn-show-review">結果一覧を見る</button>
           <button class="btn-primary" id="btn-restart">
             <span class="btn-text">もう一度プレイ</span>
             <span class="btn-icon">&orarr;</span>
           </button>
-            <button class="btn-primary" id="btn-retry-wrong" title="間違えた曲だけで再チャレンジ">間違えた曲だけで再チャレンジ</button>
-            <button class="btn-secondary" id="btn-share-x">Xで共有</button>
+          <button class="btn-primary" id="btn-retry-wrong" title="間違えた曲だけで再チャレンジ">間違えた曲だけで再チャレンジ</button>
+          <button class="btn-secondary" id="btn-share-x">Xで共有</button>
           <button class="btn-secondary" id="btn-back-title">タイトルに戻る</button>
         </div>
       </div>
@@ -316,7 +304,7 @@
     <span>Esc: 退出</span>
   </div>
 
-  <script src="songs.js"></script>
-  <script src="app.js"></script>
+  <script src="songs.js?v=20260713a"></script>
+  <script src="app.js?v=20260713a"></script>
 </body>
 </html>

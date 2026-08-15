@@ -98,6 +98,7 @@ const state = {
   quizStartTime: 0,
   questionStartTime: 0,
   filteredSongs: [],
+  retryMode: false,         // true while replaying only the wrong songs (ignores count setting)
   bgmReady: false,
   preBuffered: false,
   introTimerStarted: false,
@@ -252,10 +253,7 @@ const dom = {
   newHighscore: document.getElementById('new-highscore'),
   btnRestart: document.getElementById('btn-restart'),
   btnBackTitle: document.getElementById('btn-back-title'),
-  btnShowReview: document.getElementById('btn-show-review'),
-  btnReviewBack: document.getElementById('btn-review-back'),
   reviewList: document.getElementById('review-list'),
-  finalReviewList: document.getElementById('final-review-list'),
   btnRetryWrong: document.getElementById('btn-retry-wrong'),
   btnShareX: document.getElementById('btn-share-x'),
   btnShowStats: document.getElementById('btn-show-stats'),
@@ -299,6 +297,12 @@ function init() {
 // ===== Ordered Modes (sequential / challenge) =====
 function isOrderedMode() {
   return state.gameMode === 'sequential' || state.gameMode === 'challenge';
+}
+
+// Modes that play through a fixed song list: every song is asked (count setting ignored)
+// and wrong choices come from ALL songs, so small pools still work with 8 choices.
+function isFixedPoolMode() {
+  return isOrderedMode() || state.retryMode;
 }
 
 // Split SONGS into sets of CHALLENGE_SET_SIZE; a short remainder is merged into the last set
@@ -440,14 +444,13 @@ function bindEvents() {
   if (dom.btnShowStats) dom.btnShowStats.addEventListener('click', showStatsScreen);
   if (dom.btnStatsBack) dom.btnStatsBack.addEventListener('click', () => showScreen('start'));
   if (dom.btnClearStats) dom.btnClearStats.addEventListener('click', () => {
-    if (confirm('本当に過去の成績を削除しますか？')) {
+    if (confirm('本当に過去の成績を削除しますか？（苦手曲の記録もリセットされます）')) {
       localStorage.removeItem('nakuru_stats');
-      updateStatsDisplay();
+      localStorage.removeItem('nakuru_tracking');
       showStatsScreen();
+      updateFilteredCount();
     }
   });
-  dom.btnShowReview.addEventListener('click', showReviewScreen);
-  dom.btnReviewBack.addEventListener('click', () => showScreen('result'));
 
   // Volume
   dom.volumeSlider.addEventListener('input', (e) => {
@@ -559,7 +562,7 @@ function handleKeydown(e) {
   } else if (screenId === 'screen-result') {
     if (e.code === 'Enter') {
       e.preventDefault();
-      dom.btnRestart.click();
+      startQuiz();
     }
   }
 }
@@ -592,20 +595,23 @@ function setDifficulty(seconds) {
 
 // ===== Quiz Logic =====
 function startQuiz() {
+  beginQuiz(getFilteredSongs());
+}
+
+// Shared launcher for a normal start and "retry wrong songs"
+function beginQuiz(songs, retryMode = false) {
   initAudio();
   resetState();
-  state.filteredSongs = getFilteredSongs();
+  state.retryMode = retryMode;
+  state.filteredSongs = songs;
 
-  if (state.filteredSongs.length < state.choiceCount) {
-    alert(`対象曲が${state.filteredSongs.length}曲しかありません。${state.choiceCount}択には最低${state.choiceCount}曲必要です。`);
+  if (!isFixedPoolMode() && songs.length < state.choiceCount) {
+    alert(`対象曲が${songs.length}曲しかありません。${state.choiceCount}択には最低${state.choiceCount}曲必要です。`);
     return;
   }
 
   state.quizStartTime = Date.now();
-  // Set total for display
   dom.totalQ.textContent = getEffectiveTotal();
-
-  // Time attack UI
   dom.taTimer.classList.toggle('hidden', state.gameMode !== 'timeattack');
 
   showScreen('quiz');
@@ -613,6 +619,7 @@ function startQuiz() {
 }
 
 function resetState() {
+  state.retryMode = false;
   state.score = 0;
   state.questionNum = 0;
   state.streak = 0;
@@ -653,9 +660,9 @@ function loadQuestion() {
   });
 
   // Check question limit
-  const ordered = isOrderedMode();
+  const fixedPool = isFixedPoolMode();
   const available = state.filteredSongs.filter(s => !state.usedSongIds.has(s.id));
-  const noMoreSongs = ordered ? available.length === 0 : available.length < state.choiceCount;
+  const noMoreSongs = fixedPool ? available.length === 0 : available.length < state.choiceCount;
   const reachedLimit = state.questionNum > getEffectiveTotal();
   if (noMoreSongs || reachedLimit) {
     state.questionNum--;
@@ -664,11 +671,11 @@ function loadQuestion() {
   }
 
   // Pick current song: fixed order for sequential/challenge, random otherwise
-  state.currentSong = ordered ? available[0] : pickRandom(available);
+  state.currentSong = isOrderedMode() ? available[0] : pickRandom(available);
   state.usedSongIds.add(state.currentSong.id);
 
-  // Generate choices (ordered modes draw wrong answers from ALL songs)
-  const wrongPoolBase = ordered ? SONGS : state.filteredSongs;
+  // Generate choices (fixed-pool modes draw wrong answers from ALL songs)
+  const wrongPoolBase = fixedPool ? SONGS : state.filteredSongs;
   const wrongPool = wrongPoolBase.filter(s =>
     s.id !== state.currentSong.id && s.title !== state.currentSong.title
   );
@@ -701,7 +708,7 @@ function loadQuestion() {
 
 // Effective number of questions in the current quiz (ordered modes ignore the count setting)
 function getEffectiveTotal() {
-  if (isOrderedMode()) return state.filteredSongs.length;
+  if (isFixedPoolMode()) return state.filteredSongs.length;
   return state.totalQuestions > 0
     ? Math.min(state.totalQuestions, state.filteredSongs.length)
     : state.filteredSongs.length;
@@ -1008,32 +1015,13 @@ function showFinalResult() {
   dom.rankValue.textContent = rank;
   dom.rankValue.className = `rank-value ${rankClass}`;
 
-  // High score
-  const isNew = saveHighScore(state.score, totalTime);
+  // High score (a wrong-songs retry is a practice run and doesn't count)
+  const isNew = !state.retryMode && saveHighScore(state.score, totalTime);
   dom.newHighscore.classList.toggle('hidden', !isNew);
 
-  // Update progress to 100%
   dom.progressFill.style.width = '100%';
-  // Update cumulative stats
-  try { updateStatsOnFinish(); } catch (e) {}
-
-  // Populate final review list (correct / incorrect with correct name)
-  if (dom.finalReviewList) {
-    dom.finalReviewList.innerHTML = '';
-    state.answerHistory.forEach((entry, i) => {
-      const row = document.createElement('div');
-      row.className = `final-review-item ${entry.correct ? 'correct' : 'wrong'}`;
-      const left = document.createElement('div');
-      left.innerHTML = `<div class="song-title">${i + 1}. ${entry.song.title}</div><div class="song-extra">${entry.song.info || ''}</div>`;
-      const right = document.createElement('div');
-      right.style.minWidth = '120px';
-      right.style.textAlign = 'right';
-      right.innerHTML = entry.correct ? `<div class="song-extra">正解</div>` : `<div class="song-extra">正解: ${entry.song.title}</div>`;
-      row.appendChild(left);
-      row.appendChild(right);
-      dom.finalReviewList.appendChild(row);
-    });
-  }
+  updateStatsOnFinish();
+  renderReviewList();
 }
 
 function formatTime(ms) {
@@ -1043,9 +1031,8 @@ function formatTime(ms) {
   return `${min}:${sec.toString().padStart(2, '0')}`;
 }
 
-// ===== Review Screen =====
-function showReviewScreen() {
-  showScreen('review');
+// ===== Answer Review List (rendered on the result screen) =====
+function renderReviewList() {
   dom.reviewList.innerHTML = '';
 
   state.answerHistory.forEach((entry, i) => {
@@ -1136,60 +1123,42 @@ function saveTrackingResult(songId, correct) {
 }
 
 // ===== Statistics (cumulative) =====
-function loadStats() {
-  return JSON.parse(localStorage.getItem('nakuru_stats') || '{"plays":0,"totalCorrect":0,"totalQuestions":0,"perSongWrong":{}}');
-}
-
-function saveStats(stats) {
+// Play count lives in nakuru_stats; per-song and total counts are derived from nakuru_tracking
+// (already written by saveTrackingResult) so nothing is recorded twice.
+function updateStatsOnFinish() {
+  const stats = JSON.parse(localStorage.getItem('nakuru_stats') || '{}');
+  stats.plays = (stats.plays || 0) + 1;
   localStorage.setItem('nakuru_stats', JSON.stringify(stats));
 }
 
-function updateStatsOnFinish() {
-  const stats = loadStats();
-  stats.plays = (stats.plays || 0) + 1;
-  stats.totalCorrect = (stats.totalCorrect || 0) + state.correctCount;
-  const answered = state.answerHistory.length;
-  stats.totalQuestions = (stats.totalQuestions || 0) + answered;
-  stats.perSongWrong = stats.perSongWrong || {};
-  state.answerHistory.forEach(entry => {
-    if (!entry.correct) {
-      const id = entry.song.id;
-      stats.perSongWrong[id] = (stats.perSongWrong[id] || 0) + 1;
-    }
-  });
-  saveStats(stats);
-}
-
 function computeStatsSummary() {
-  const s = loadStats();
-  const plays = s.plays || 0;
-  const totalQ = s.totalQuestions || 0;
-  const totalCorrect = s.totalCorrect || 0;
-  const accuracy = totalQ > 0 ? Math.round((totalCorrect / totalQ) * 1000) / 10 : 0;
-  // most missed
-  let mostMissed = null;
-  let max = 0;
-  for (const id in (s.perSongWrong || {})) {
-    if (s.perSongWrong[id] > max) { max = s.perSongWrong[id]; mostMissed = id; }
+  const plays = JSON.parse(localStorage.getItem('nakuru_stats') || '{}').plays || 0;
+  const tracking = loadTracking();
+  let totalCorrect = 0, totalWrong = 0, mostMissedId = null, mostMissedCount = 0;
+  for (const [id, t] of Object.entries(tracking)) {
+    totalCorrect += t.correct || 0;
+    totalWrong += t.wrong || 0;
+    if ((t.wrong || 0) > mostMissedCount) { mostMissedCount = t.wrong; mostMissedId = id; }
   }
-  const mostMissedSong = mostMissed ? SONGS.find(x => x.id === mostMissed) : null;
-  return { plays, totalQ, totalCorrect, accuracy, mostMissedSong, mostMissedCount: max };
+  const totalQ = totalCorrect + totalWrong;
+  const accuracy = totalQ > 0 ? Math.round((totalCorrect / totalQ) * 1000) / 10 : 0;
+  const mostMissedSong = mostMissedId ? SONGS.find(x => x.id === mostMissedId) : null;
+  return { plays, totalQ, totalCorrect, accuracy, mostMissedSong, mostMissedCount };
 }
 
 function updateStatsDisplay() {
-  const el = dom.statsContent;
-  if (!el) return;
+  if (!dom.statsContent) return;
   const sum = computeStatsSummary();
-  el.innerHTML = '';
-  const rows = [];
-  rows.push(`<div class="stat-row"><div><div class="stat-label">プレイ回数</div><div class="stat-value">${sum.plays}</div></div><div></div></div>`);
-  rows.push(`<div class="stat-row"><div><div class="stat-label">総問題数</div><div class="stat-value">${sum.totalQ}</div></div><div></div></div>`);
-  rows.push(`<div class="stat-row"><div><div class="stat-label">総正解数</div><div class="stat-value">${sum.totalCorrect}</div></div><div></div></div>`);
-  rows.push(`<div class="stat-row"><div><div class="stat-label">総合正答率</div><div class="stat-value">${sum.accuracy}%</div></div><div></div></div>`);
-  if (sum.mostMissedSong) {
-    rows.push(`<div class="stat-row"><div><div class="stat-label">最も間違えた曲</div><div class="stat-value">${sum.mostMissedSong.title} (${sum.mostMissedCount}回)</div></div><div></div></div>`);
-  }
-  el.innerHTML = rows.join('');
+  const row = (label, value) =>
+    `<div class="stat-row"><div><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div><div></div></div>`;
+  const rows = [
+    row('プレイ回数', sum.plays),
+    row('総問題数', sum.totalQ),
+    row('総正解数', sum.totalCorrect),
+    row('総合正答率', `${sum.accuracy}%`),
+  ];
+  if (sum.mostMissedSong) rows.push(row('最も間違えた曲', `${sum.mostMissedSong.title} (${sum.mostMissedCount}回)`));
+  dom.statsContent.innerHTML = rows.join('');
 }
 
 function showStatsScreen() {
@@ -1199,23 +1168,14 @@ function showStatsScreen() {
 
 // ===== Retry Wrong =====
 function retryWrong() {
-  const wrongSongs = state.answerHistory.filter(e => !e.correct).map(e => e.song);
-  if (!wrongSongs || wrongSongs.length === 0) {
+  const wrongSongs = [...new Map(
+    state.answerHistory.filter(e => !e.correct).map(e => [e.song.id, e.song])
+  ).values()];
+  if (wrongSongs.length === 0) {
     alert('間違えた曲はありません。');
     return;
   }
-  resetState();
-  // Deduplicate
-  const unique = [];
-  const seen = new Set();
-  wrongSongs.forEach(s => { if (!seen.has(s.id)) { seen.add(s.id); unique.push(s); } });
-  state.filteredSongs = unique;
-  state.totalQuestions = unique.length;
-  state.quizStartTime = Date.now();
-  dom.totalQ.textContent = state.totalQuestions;
-  if (state.gameMode === 'timeattack') dom.taTimer.classList.remove('hidden'); else dom.taTimer.classList.add('hidden');
-  showScreen('quiz');
-  loadQuestion();
+  beginQuiz(wrongSongs, true);
 }
 
 // ===== Share to X/Twitter =====
@@ -1257,14 +1217,12 @@ function bgmPause() {
 function bgmResume() {
   if (!bgmPlayer || !state.bgmReady || bgmMuted) return;
   try {
-    const vol = parseInt(document.getElementById('bgm-volume')?.value || BGM_VOLUME);
-    if (!bgmStarted) {
+    bgmPlayer.setVolume(parseInt(document.getElementById('bgm-volume')?.value || BGM_VOLUME));
+    if (bgmStarted) {
+      bgmPlayer.playVideo();
+    } else {
       bgmStarted = true;
       playRandomBgm();
-      bgmPlayer.setVolume(vol);
-    } else {
-      bgmPlayer.setVolume(vol);
-      bgmPlayer.playVideo();
     }
   } catch(e) {}
 }

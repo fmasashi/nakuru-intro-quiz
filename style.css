@@ -1494,7 +1494,7 @@ h1#main-title {
   width: 100%;
 }
 
-/* Review Screen */
+/* Stats Screen card (shares the review look) */
 .review-card {
   max-height: 85vh;
   overflow-y: auto;
@@ -1510,14 +1510,16 @@ h1#main-title {
   color: var(--text-primary);
 }
 
+/* Answer review list shown inline on the result screen */
 .review-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 20px;
-  max-height: 60vh;
+  margin: 16px 0 20px;
+  max-height: 240px;
   overflow-y: auto;
   padding-right: 8px;
+  text-align: left;
 }
 
 .review-item {
@@ -1850,13 +1852,10 @@ h1#main-title {
   border: 1px solid rgba(255,255,255,0.03);
 }
 
-.stat-label { color: var(--text-muted); font-size:0.75rem; }
-.stat-value { color: var(--accent-primary); font-weight:800; }
-
-.final-review-list { margin-top:16px; display:flex; flex-direction:column; gap:6px; max-height:200px; overflow:auto; }
-.final-review-item { display:flex; justify-content:space-between; gap:8px; padding:8px 10px; border-radius:8px; background: rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.03); }
-.final-review-item.wrong { border-left: 4px solid #f5576c; }
-.final-review-item.correct { border-left: 4px solid #43e97b; }
-.final-review-item .song-title { color:var(--text-primary); font-weight:700; }
-.final-review-item .song-extra { color:var(--text-muted); font-size:0.82rem; }
+/* Scoped so they don't override the quiz-header .stat-label/.stat-value */
+.stat-row .stat-label { color: var(--text-muted); font-size:0.75rem; text-transform: none; letter-spacing: 0; }
+.stat-row .stat-value {
+  color: var(--accent-primary); font-weight:800; font-size: 1rem;
+  background: none; -webkit-text-fill-color: currentColor;
+}
 
