@@ -1,5 +1,6 @@
 # local dev tools & scratch (kept outside this folder in ../tools)
 tools/
+deploy.bat
 *.log
 out*.json
 out*.txt
