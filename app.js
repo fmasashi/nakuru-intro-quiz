@@ -210,10 +210,7 @@ function onPlayerError(event) {
     dom.btnPlay.disabled = true;
     showResult(false, 'この動画は再生できませんでした');
     state.errorSkipTimer = setTimeout(() => {
-      if (state.answered) {
-        stopPlayback();
-        loadQuestion();
-      }
+      if (state.answered) nextQuestion();
     }, 2000);
   }
 }
@@ -228,7 +225,6 @@ const dom = {
   currentQ: document.getElementById('current-q'),
   totalQ: document.getElementById('total-q'),
   streak: document.getElementById('streak'),
-  playOverlay: document.getElementById('play-overlay'),
   btnPlay: document.getElementById('btn-play'),
   timerFill: document.getElementById('timer-fill'),
   choicesArea: document.getElementById('choices-area'),
@@ -340,8 +336,7 @@ function generateChallengeSetButtons() {
 
 function updateChallengeRange() {
   const set = getChallengeSets()[state.challengeSet];
-  const names = SONGS.slice(set.start, set.end);
-  dom.challengeRange.textContent = `セット${state.challengeSet + 1}: ${set.start + 1}〜${set.end}曲目 (${names.length}曲)`;
+  dom.challengeRange.textContent = `セット${state.challengeSet + 1}: ${set.start + 1}〜${set.end}曲目 (${set.end - set.start}曲)`;
 }
 
 // Grey out settings that ordered modes ignore, and show/hide the set picker
@@ -647,7 +642,6 @@ function loadQuestion() {
   dom.streak.textContent = state.streak;
   dom.resultArea.classList.add('hidden');
   dom.nextArea.classList.add('hidden');
-  dom.playOverlay.classList.remove('hidden');
   dom.btnPlay.disabled = false;
   dom.timerFill.style.width = '0%';
 
@@ -731,6 +725,9 @@ function playIntro() {
   dom.btnPlay.disabled = true;
   state.isPlaying = true;
   state.introTimerStarted = false;
+  // Playing before the muted pre-buffer finished: mark it done so the pre-buffer
+  // branch in onPlayerStateChange can't pause a later replay
+  state.preBuffered = true;
   player.unMute();
   player.setVolume(getNormalizedVolume());
   player.seekTo(state.currentSong.start || 0, true);

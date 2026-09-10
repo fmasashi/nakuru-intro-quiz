@@ -447,6 +447,7 @@ h1#main-title {
 
 .stats-bar {
   display: flex;
+  align-items: center;
   justify-content: center;
   gap: 24px;
   background: var(--glass-bg);
@@ -725,6 +726,7 @@ h1#main-title {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   word-break: break-word;
 }
 
@@ -753,13 +755,6 @@ h1#main-title {
 
 .choice-btn:disabled {
   cursor: default;
-}
-
-.choice-btn {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .choice-num {
@@ -800,7 +795,7 @@ h1#main-title {
 }
 
 .choice-btn.correct-answer {
-  background: linear-gradient(135deg, rgba(67, 233, 123, 0.15), rgba(56, 249, 215, 0.1));
+  background: rgba(67, 233, 123, 0.08);
   border-color: rgba(67, 233, 123, 0.5);
   color: #43e97b;
 }
@@ -890,10 +885,6 @@ h1#main-title {
   display: none;
 }
 
-.result-area.hidden {
-  display: none;
-}
-
 .result-icon {
   font-size: 3rem;
   margin-bottom: 8px;
@@ -968,13 +959,6 @@ h1#main-title {
   opacity: 1;
   background: rgba(110, 142, 251, 0.1);
   border-color: var(--accent-primary);
-}
-
-.result-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  margin-bottom: 14px;
 }
 
 .btn-replay,
@@ -1370,11 +1354,6 @@ h1#main-title {
 }
 
 /* Stats bar with quit button */
-.stats-bar {
-  display: flex;
-  align-items: center;
-}
-
 /* 6-choice grid */
 .choices-area.choices-6 {
   grid-template-columns: repeat(2, 1fr);
@@ -1564,15 +1543,11 @@ h1#main-title {
 .review-details .review-title {
   font-size: 0.8rem;
   color: var(--text-primary);
+  margin-bottom: 0;
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.review-details .review-title {
-  margin-bottom: 0;
-  text-align: left;
-  font-size: 0.8rem;
 }
 
 .review-item-info {
@@ -1712,12 +1687,6 @@ h1#main-title {
 }
 
 /* correct-answer highlight for wrong answers */
-.choice-btn.correct-answer {
-  border-color: rgba(67, 233, 123, 0.5);
-  background: rgba(67, 233, 123, 0.08);
-  color: #43e97b;
-}
-
 /* BGM Now Playing */
 .bgm-now-playing {
   position: fixed;
