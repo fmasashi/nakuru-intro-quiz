@@ -74,7 +74,7 @@ const SONGS = [
   {"id":"4P1OdtYncNY","title":"Indigrotto","category":"solo","info":"アルバム「Indigrotto」タイトル曲 (2022) / 作曲: 北川勝利","lyrics":"","vol":0.89},
   {"id":"63gXH5Rylf4","title":"ペトリコール","category":"endorfin","info":"Endorfin. COLOURS.02「Blurred Mind」収録 (2022) / 作曲: sky_delta","lyrics":"","start":0.3,"vol":2.05},
   {"id":"7XeWXV_9mOY","title":"FAKE IDOL","category":"solo","info":"7thアルバム「Counterfeit」収録 (2022) / 作曲: Akki","lyrics":"","start":1.6,"vol":1.54},
-  {"id":"vO5DYcS72Xk","title":"ミントブルー・ガール","category":"endorfin","info":"Endorfin. COLOURS.02「Blurred Mind」収録 (2022) / 作曲: sky_delta","lyrics":"","start":0.7,"vol":0.85},
+  {"id":"vO5DYcS72Xk","title":"ミントブルー・ガール（2022 Edition）","category":"endorfin","info":"Endorfin. COLOURS.02「Blurred Mind」収録 (2022) / 作曲: sky_delta","lyrics":"","start":0.7,"vol":0.85},
   {"id":"7-i1DQVm5Ew","title":"シュガーレス・レイン","category":"endorfin","info":"Endorfin. COLOURS.02「Blurred Mind」収録 (2022) / 作曲: sky_delta","lyrics":"","start":0.6,"vol":1.63},
   {"id":"OuJRu0g61QM","title":"無言の鳥籠","category":"endorfin","info":"Endorfin. COLOURS.02「Blurred Mind」収録 (2022) / 作曲: sky_delta","lyrics":"","start":0.6,"vol":1.31},
   {"id":"j45s9xvJ4Mk","title":"秒針とソーダフロート","category":"endorfin","info":"Endorfin. COLOURS.02「Blurred Mind」収録 (2022) / 作曲: sky_delta","lyrics":"","start":0.7,"vol":1.12},
