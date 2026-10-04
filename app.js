@@ -87,7 +87,7 @@ const state = {
   timerInterval: null,
   replayTimer: null,
   errorSkipTimer: null,
-  taRafId: null,
+  taTimer: null,
   volume: 40,
   totalQuestions: 10,       // 0 = all
   choiceCount: 4,
@@ -629,6 +629,7 @@ function resetState() {
   state.preBuffered = true;
   state.answerHistory = [];
   clearTimers();
+  stopTATimer();
 }
 
 function loadQuestion() {
@@ -736,17 +737,24 @@ function playIntro() {
   if (state.questionStartTime === 0) {
     state.questionStartTime = Date.now();
   }
-  // Time attack display
-  if (state.gameMode === 'timeattack') {
-    updateTATimer();
-  }
+  if (state.gameMode === 'timeattack') startTATimer();
 }
 
-function updateTATimer() {
-  if (state.gameMode !== 'timeattack' || state.answered) { state.taRafId = null; return; }
-  const elapsed = ((Date.now() - state.questionStartTime) / 1000).toFixed(1);
-  dom.taValue.textContent = `${elapsed}s`;
-  state.taRafId = requestAnimationFrame(updateTATimer);
+// Live "回答時間" readout at the display's own 0.1s resolution (a 100ms interval rather than
+// rAF: it keeps counting in a background tab and isn't cancelled by startIntroTimer's clearTimers).
+// No-op if already running so replaying the intro doesn't stack a second ticker.
+function startTATimer() {
+  if (state.taTimer) return;
+  const tick = () => {
+    if (state.answered) { stopTATimer(); return; }
+    dom.taValue.textContent = `${((Date.now() - state.questionStartTime) / 1000).toFixed(1)}s`;
+  };
+  tick();
+  state.taTimer = setInterval(tick, 100);
+}
+
+function stopTATimer() {
+  if (state.taTimer) { clearInterval(state.taTimer); state.taTimer = null; }
 }
 
 // Reset the replay timer & "full listen" button back to their default state
@@ -810,6 +818,7 @@ function startIntroTimer() {
 
 function stopPlayback() {
   clearTimers();
+  stopTATimer();
   if (player && state.playerReady) {
     try { player.pauseVideo(); } catch (e) {}
   }
@@ -820,7 +829,6 @@ function clearTimers() {
   if (state.stopTimer) { clearTimeout(state.stopTimer); state.stopTimer = null; }
   if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
   if (state.errorSkipTimer) { clearTimeout(state.errorSkipTimer); state.errorSkipTimer = null; }
-  if (state.taRafId) { cancelAnimationFrame(state.taRafId); state.taRafId = null; }
 }
 
 // ===== Answer Logic =====
