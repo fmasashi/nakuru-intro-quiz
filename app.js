@@ -179,10 +179,27 @@ function getNormalizedVolume() {
 function onPlayerReady() {
   state.playerReady = true;
   player.setVolume(state.volume);
+  // Start may have been clicked before the API finished loading: the current question
+  // has no video yet, so load it now instead of leaving the play button dead
+  if (state.currentSong && document.getElementById('screen-quiz').classList.contains('active')) {
+    preBufferCurrentSong();
+  }
+}
+
+// Load the current song muted; onPlayerStateChange pauses it at the intro start point
+function preBufferCurrentSong() {
+  state.preBuffered = false;
+  player.mute();
+  player.loadVideoById({ videoId: state.currentSong.id, startSeconds: state.currentSong.start || 0 });
 }
 
 function onPlayerStateChange(event) {
   if (!state.currentSong) return;
+  // Full-song playback reached the end: put the toggle back to "フルで聴く"
+  if (event.data === YT.PlayerState.ENDED) {
+    if (dom.btnFullListen.classList.contains('playing')) resetListenControls();
+    return;
+  }
   // Pre-buffer: pause as soon as video starts playing (while muted)
   if (event.data === YT.PlayerState.PLAYING && !state.preBuffered && !state.isPlaying) {
     state.preBuffered = true;
@@ -210,7 +227,9 @@ function onPlayerError(event) {
     dom.btnPlay.disabled = true;
     showResult(false, 'この動画は再生できませんでした');
     state.errorSkipTimer = setTimeout(() => {
-      if (state.answered) nextQuestion();
+      if (!state.answered) return;
+      state.questionNum--;  // an unplayable video shouldn't use up one of the question slots
+      nextQuestion();
     }, 2000);
   }
 }
@@ -440,8 +459,8 @@ function bindEvents() {
   if (dom.btnStatsBack) dom.btnStatsBack.addEventListener('click', () => showScreen('start'));
   if (dom.btnClearStats) dom.btnClearStats.addEventListener('click', () => {
     if (confirm('本当に過去の成績を削除しますか？（苦手曲の記録もリセットされます）')) {
-      localStorage.removeItem('nakuru_stats');
-      localStorage.removeItem('nakuru_tracking');
+      storage.remove('nakuru_stats');
+      storage.remove('nakuru_tracking');
       showStatsScreen();
       updateFilteredCount();
     }
@@ -452,7 +471,7 @@ function bindEvents() {
     const vol = parseInt(e.target.value);
     state.volume = vol;
     dom.volumeValue.textContent = vol;
-    if (player && state.playerReady) player.setVolume(vol);
+    if (player && state.playerReady) player.setVolume(getNormalizedVolume());
     dom.volumeIcon.textContent = vol === 0 ? '\u2013' : '\u266A';
   });
 
@@ -517,6 +536,7 @@ function getFilteredSongs() {
 
 // ===== Keyboard Shortcuts =====
 function handleKeydown(e) {
+  if (e.repeat) return;  // a held key shouldn't keep re-firing actions
   const activeScreen = document.querySelector('.screen.active');
   if (!activeScreen) return;
   const screenId = activeScreen.id;
@@ -694,11 +714,7 @@ function loadQuestion() {
   }
 
   // Pre-buffer video (muted) for instant playback
-  if (state.playerReady && player) {
-    state.preBuffered = false;
-    player.mute();
-    player.loadVideoById({ videoId: state.currentSong.id, startSeconds: state.currentSong.start || 0 });
-  }
+  if (state.playerReady && player) preBufferCurrentSong();
 }
 
 // Effective number of questions in the current quiz (ordered modes ignore the count setting)
@@ -1088,19 +1104,29 @@ function getHSKey() {
   return `nakuru_hs_${mode}_${count}_${state.introDuration}_${state.choiceCount}`;
 }
 
+// localStorage can be disabled (private mode) or hold corrupt JSON; never let that take the game down
+const storage = {
+  get(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw === null ? fallback : JSON.parse(raw);
+    } catch (e) { return fallback; }
+  },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} },
+  remove(key) { try { localStorage.removeItem(key); } catch (e) {} },
+};
+
 function saveHighScore(score, timeMs) {
-  const key = getHSKey();
-  const existing = JSON.parse(localStorage.getItem(key) || 'null');
+  const existing = loadHighScore();
   if (!existing || score > existing.score || (score === existing.score && timeMs < existing.time)) {
-    localStorage.setItem(key, JSON.stringify({ score, time: timeMs }));
+    storage.set(getHSKey(), { score, time: timeMs });
     return true;
   }
   return false;
 }
 
 function loadHighScore() {
-  const key = getHSKey();
-  return JSON.parse(localStorage.getItem(key) || 'null');
+  return storage.get(getHSKey(), null);
 }
 
 function updateHighScoreDisplay() {
@@ -1116,7 +1142,7 @@ function updateHighScoreDisplay() {
 
 // ===== localStorage: Per-Song Tracking =====
 function loadTracking() {
-  return JSON.parse(localStorage.getItem('nakuru_tracking') || '{}');
+  return storage.get('nakuru_tracking', {});
 }
 
 function saveTrackingResult(songId, correct) {
@@ -1124,20 +1150,20 @@ function saveTrackingResult(songId, correct) {
   if (!tracking[songId]) tracking[songId] = { correct: 0, wrong: 0 };
   if (correct) tracking[songId].correct++;
   else tracking[songId].wrong++;
-  localStorage.setItem('nakuru_tracking', JSON.stringify(tracking));
+  storage.set('nakuru_tracking', tracking);
 }
 
 // ===== Statistics (cumulative) =====
 // Play count lives in nakuru_stats; per-song and total counts are derived from nakuru_tracking
 // (already written by saveTrackingResult) so nothing is recorded twice.
 function updateStatsOnFinish() {
-  const stats = JSON.parse(localStorage.getItem('nakuru_stats') || '{}');
+  const stats = storage.get('nakuru_stats', {});
   stats.plays = (stats.plays || 0) + 1;
-  localStorage.setItem('nakuru_stats', JSON.stringify(stats));
+  storage.set('nakuru_stats', stats);
 }
 
 function computeStatsSummary() {
-  const plays = JSON.parse(localStorage.getItem('nakuru_stats') || '{}').plays || 0;
+  const plays = storage.get('nakuru_stats', {}).plays || 0;
   const tracking = loadTracking();
   let totalCorrect = 0, totalWrong = 0, mostMissedId = null, mostMissedCount = 0;
   for (const [id, t] of Object.entries(tracking)) {
