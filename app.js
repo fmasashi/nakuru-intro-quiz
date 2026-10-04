@@ -343,7 +343,7 @@ function generateChallengeSetButtons() {
     btn.title = `${set.start + 1}〜${set.end}曲目`;
     btn.addEventListener('click', () => {
       state.challengeSet = i;
-      dom.challengeSetOptions.querySelectorAll('.chip').forEach((b, j) => b.classList.toggle('active', j === i));
+      activateChip(dom.challengeSetOptions.querySelectorAll('.chip'), btn);
       updateChallengeRange();
       updateFilteredCount();
       updateHighScoreDisplay();
@@ -388,6 +388,12 @@ function generateChoiceButtons(count) {
   dom.choicesArea.className = `choices-area choices-${count}`;
 }
 
+// Mark one chip in a group as active: pass the chip element or a predicate over the group
+function activateChip(group, chip) {
+  const isActive = typeof chip === 'function' ? chip : (b => b === chip);
+  group.forEach(b => b.classList.toggle('active', isActive(b)));
+}
+
 function bindEvents() {
   // Difficulty
   dom.diffBtns.forEach(btn => {
@@ -400,8 +406,7 @@ function bindEvents() {
   // Game mode
   dom.gameModeOptions.forEach(btn => {
     btn.addEventListener('click', () => {
-      dom.gameModeOptions.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      activateChip(dom.gameModeOptions, btn);
       state.gameMode = btn.dataset.mode;
       updateModeUI();
       updateHighScoreDisplay();
@@ -412,8 +417,7 @@ function bindEvents() {
   // Question count
   dom.countOptions.forEach(btn => {
     btn.addEventListener('click', () => {
-      dom.countOptions.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      activateChip(dom.countOptions, btn);
       state.totalQuestions = parseInt(btn.dataset.count);
       updateHighScoreDisplay();
     });
@@ -422,8 +426,7 @@ function bindEvents() {
   // Choice count
   dom.choiceCountOptions.forEach(btn => {
     btn.addEventListener('click', () => {
-      dom.choiceCountOptions.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      activateChip(dom.choiceCountOptions, btn);
       state.choiceCount = parseInt(btn.dataset.choices);
       generateChoiceButtons(state.choiceCount);
       updateHighScoreDisplay();
@@ -603,8 +606,9 @@ function showScreen(name) {
 // ===== Difficulty Sync =====
 function setDifficulty(seconds) {
   state.introDuration = seconds;
-  dom.diffBtns.forEach(b => b.classList.toggle('active', parseInt(b.dataset.seconds) === seconds));
-  dom.inlineDiffBtns.forEach(b => b.classList.toggle('active', parseInt(b.dataset.seconds) === seconds));
+  const isSelected = b => parseInt(b.dataset.seconds) === seconds;
+  activateChip(dom.diffBtns, isSelected);
+  activateChip(dom.inlineDiffBtns, isSelected);
   updateHighScoreDisplay();
 }
 
