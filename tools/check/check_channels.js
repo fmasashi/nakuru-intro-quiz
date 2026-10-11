@@ -65,9 +65,19 @@ async function main() {
     'dai',
   ]);
   
-  // Find non-Nakuru songs
-  const suspicious = results.filter(r => r.status === 'ok' && !allowedChannels.has(r.author));
+  // Songs legitimately hosted on someone else's channel (id → why). Listed separately, never flagged.
+  const KNOWN_EXTERNAL = {
+    'U6q9Y5PWfkI': '棗いつき×藍月なくる「追想のラグナロク」— 棗いつきさんのチャンネル',
+    'ZgbQcvtndI4': '藍月なくる×DECO*27×tepe「Hookah, whoo!」— アニプレックス公式MV',
+  };
+  const known = results.filter(r => KNOWN_EXTERNAL[r.id]);
+  console.log('\n=== Known external-channel songs (expected) ===');
+  known.forEach(r => console.log(`${r.author} | ${r.title} | ${r.id} … ${KNOWN_EXTERNAL[r.id]}`));
+
+  // Anything else not on a known Nakuru-related channel needs a manual look
+  const suspicious = results.filter(r => r.status === 'ok' && !allowedChannels.has(r.author) && !KNOWN_EXTERNAL[r.id]);
   console.log('\n=== Possibly non-Nakuru songs ===');
+  if (suspicious.length === 0) console.log('(none)');
   suspicious.forEach(r => console.log(`${r.author} | ${r.title} | ${r.id}`));
   
   fs.writeFileSync(P.data('channel_check.json'), JSON.stringify(results, null, 2), 'utf-8');

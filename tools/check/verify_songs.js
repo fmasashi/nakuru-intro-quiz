@@ -11,6 +11,11 @@ channels.forEach(c => { if (c.status === 'ok') channelMap[c.id] = { author: c.au
 
 const issues = [];
 
+// Intentional exceptions (id → why). Skipped by the category-vs-channel checks only.
+const KNOWN_EXCEPTIONS = {
+  'O9XuzOv6Y3A': 'ペンと林檎とわたし: カバー曲。Endorfin. - Topic 配信だが category=solo が正（2026-07 ファクトチェック済み）',
+};
+
 SONGS.forEach((s, i) => {
   const ch = channelMap[s.id];
   if (!ch) {
@@ -25,13 +30,14 @@ SONGS.forEach((s, i) => {
   const isItsukiChannel = ch.author.includes('棗いつき');
 
   // Category mismatch
-  if (s.category === 'solo' && isEndorfinChannel && !s.info.includes('Transpain') && !s.info.includes('Feryquitous JazzRemix')) {
+  const catExempt = Boolean(KNOWN_EXCEPTIONS[s.id]);
+  if (!catExempt && s.category === 'solo' && isEndorfinChannel && !s.info.includes('Transpain') && !s.info.includes('Feryquitous JazzRemix')) {
     issues.push(`[CAT_MISMATCH] #${i+1} "${s.title}" → category=solo but channel=${ch.author}. Should be endorfin?`);
   }
-  if (s.category === 'endorfin' && isNakuruChannel && !isEndorfinChannel) {
+  if (!catExempt && s.category === 'endorfin' && isNakuruChannel && !isEndorfinChannel) {
     issues.push(`[CAT_MISMATCH] #${i+1} "${s.title}" → category=endorfin but channel=${ch.author}. Should be solo?`);
   }
-  if (s.category === 'solo' && isLaPriereChannel) {
+  if (!catExempt && s.category === 'solo' && isLaPriereChannel) {
     issues.push(`[CAT_MISMATCH] #${i+1} "${s.title}" → category=solo but channel=${ch.author}. Should be la_priere?`);
   }
   

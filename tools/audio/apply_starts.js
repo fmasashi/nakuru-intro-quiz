@@ -16,12 +16,7 @@ SONGS.forEach(s => {
   // Don't add start:0, it's the default
 });
 
-let out = '// Song database for Nakuru Intro Quiz - with discography info & start times\nconst SONGS = [\n';
-SONGS.forEach((s, i) => {
-  out += '  ' + JSON.stringify(s) + (i < SONGS.length - 1 ? ',' : '') + '\n';
-});
-out += '];\n';
-fs.writeFileSync(P.SONGS, out, 'utf-8');
+P.writeSongs(SONGS);
 
 // Stats
 const over1 = SONGS.filter(s => s.start && s.start >= 1).sort((a,b) => b.start - a.start);

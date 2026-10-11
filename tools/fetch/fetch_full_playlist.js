@@ -139,12 +139,7 @@ async function main() {
   failed.forEach(r => console.log(`FAILED: ${r.id} (${r.status})`));
   
   // Write
-  let out = '// Song database for Nakuru Intro Quiz - rebuilt from YouTube oEmbed\nconst SONGS = [\n';
-  SONGS.forEach((s, i) => {
-    out += '  ' + JSON.stringify(s) + (i < SONGS.length - 1 ? ',' : '') + '\n';
-  });
-  out += '];\n';
-  fs.writeFileSync(P.SONGS, out, 'utf-8');
+  P.writeSongs(SONGS);
   
   const cats = {};
   SONGS.forEach(s => { cats[s.category] = (cats[s.category] || 0) + 1; });

@@ -34,12 +34,7 @@ SONGS.forEach(s => {
   }
 });
 
-let out = '// Song database for Nakuru Intro Quiz - with discography info, start times & volume normalization\nconst SONGS = [\n';
-SONGS.forEach((s, i) => {
-  out += '  ' + JSON.stringify(s) + (i < SONGS.length - 1 ? ',' : '') + '\n';
-});
-out += '];\n';
-fs.writeFileSync(P.SONGS, out, 'utf-8');
+P.writeSongs(SONGS);
 
 // Show adjustments
 const adjusted = SONGS.filter(s => s.vol).sort((a, b) => (a.vol || 1) - (b.vol || 1));

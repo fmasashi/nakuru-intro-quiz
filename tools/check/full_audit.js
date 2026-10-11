@@ -99,12 +99,7 @@ async function main() {
   if (toRemove.length > 0) {
     const removeSet = new Set(toRemove);
     const clean = SONGS.filter(s => !removeSet.has(s.id));
-    let out = '// Song database for Nakuru Intro Quiz - with discography info\nconst SONGS = [\n';
-    clean.forEach((s, i) => {
-      out += '  ' + JSON.stringify(s) + (i < clean.length - 1 ? ',' : '') + '\n';
-    });
-    out += '];\n';
-    fs.writeFileSync(P.SONGS, out, 'utf-8');
+    P.writeSongs(clean);
     console.log(`\n✅ Removed ${toRemove.length} songs. New total: ${clean.length}`);
   }
   
